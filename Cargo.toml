@@ -1,0 +1,23 @@
+[package]
+name = "view-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+# GUI framework (egui via eframe) for native apps
+eframe = "0.33"
+
+# Image helper to let egui load images from URLs/file paths at runtime
+# enable the built-in `image` loader so `install_image_loaders` actually registers a file:// loader
+egui_extras = { version = "0.33", features = ["all_loaders"] }
+
+# File open dialog (cross-platform)
+rfd = "0.12"
+rand = "0.9"
+env_logger = "0.10"
+log = "0.4"
+image = { version = "0.25", features = ["png", "jpeg", "bmp", "webp", "tiff"] }
+
+[profile.release]
+lto = true
