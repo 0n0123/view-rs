@@ -1,14 +1,17 @@
 use log::{LevelFilter, error, info};
-use std::path::PathBuf;
+use std::{ops::Deref, path::PathBuf};
 
 use eframe::{NativeOptions, egui};
+
+mod path;
+use crate::path::{PathSortable, to_path, to_url};
 
 struct ImageViewer {
     // current image source as a URL or file:// URI that egui_extras can handle
     current_src: Option<String>,
     image_size: [usize; 2],
     // nothing diagnostic here — rely on runtime loaders
-    files: Vec<PathBuf>,
+    files: Vec<PathSortable>,
     index: usize,
     randomize: bool,
 }
@@ -55,7 +58,7 @@ impl eframe::App for ImageViewer {
                         let cur_path = self
                             .current_src
                             .as_ref()
-                            .and_then(|s| s.strip_prefix("file://").map(|p| PathBuf::from(p)));
+                            .and_then(|s| to_path(s));
 
                         if self.randomize {
                             use rand::seq::SliceRandom;
@@ -67,18 +70,16 @@ impl eframe::App for ImageViewer {
 
                         // re-index to current file if present, otherwise fallback to 0
                         if let Some(cur) = cur_path {
-                            if let Some(pos) = self.files.iter().position(|p| *p == cur) {
+                            if let Some(pos) = self.files.iter().position(|p| p.deref() == &cur) {
                                 self.index = pos;
-                                self.current_src =
-                                    Some(format!("file://{}", self.files[self.index].display()));
+                                self.current_src = Some(to_url(&self.files[self.index]));
                             } else {
                                 self.index = 0;
-                                self.current_src =
-                                    Some(format!("file://{}", self.files[0].display()));
+                                self.current_src = Some(to_url(&self.files[0]));
                             }
                         } else {
                             self.index = 0;
-                            self.current_src = Some(format!("file://{}", self.files[0].display()));
+                            self.current_src = Some(to_url(&self.files[0]));
                         }
                         // reset image_size so runtime loader can supply intrinsic size again
                         self.image_size = [0, 0];
@@ -101,7 +102,7 @@ impl eframe::App for ImageViewer {
                         break;
                     } else if p.is_file() {
                         // open single file
-                        self.files = vec![p.clone()];
+                        self.files = vec![PathSortable::from(p.clone())];
                         self.index = 0;
                         self.current_src = Some(format!("file://{}", p.display()));
                         break;
@@ -144,6 +145,12 @@ impl ImageViewer {
             .map_err(|e| e.to_string())?
             .filter_map(Result::ok)
             .map(|e| e.path())
+            .filter(|p| {
+                p.is_file()
+                    && p.file_name()
+                        .is_some_and(|n| !n.to_string_lossy().starts_with('.'))
+            })
+            .map(PathSortable::from)
             .collect::<Vec<_>>();
 
         let exts = ["jpg", "jpeg", "png", "bmp", "gif", "webp", "avif"];
@@ -160,7 +167,7 @@ impl ImageViewer {
 
         if self.randomize {
             use rand::seq::SliceRandom;
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             entries.shuffle(&mut rng);
         } else {
             entries.sort();
@@ -170,7 +177,7 @@ impl ImageViewer {
         self.index = 0;
         let p = self.files[0].clone();
 
-        self.current_src = Some(format!("file://{}", p.display()));
+        self.current_src = Some(to_url(&p));
         // we don't know image size here; egui_extras may set it when loading. Keep fallback size 0.
         self.image_size = [0, 0];
         Ok(())
@@ -182,7 +189,7 @@ impl ImageViewer {
         }
         self.index = (self.index + 1) % self.files.len();
         let p = self.files[self.index].clone();
-        self.current_src = Some(format!("file://{}", p.display()));
+        self.current_src = Some(to_url(&p));
         self.image_size = [0, 0];
     }
 
@@ -196,7 +203,7 @@ impl ImageViewer {
             self.index -= 1;
         }
         let p = self.files[self.index].clone();
-        self.current_src = Some(format!("file://{}", p.display()));
+        self.current_src = Some(to_url(&p));
         self.image_size = [0, 0];
     }
 }
