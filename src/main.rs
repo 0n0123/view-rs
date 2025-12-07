@@ -1,7 +1,10 @@
-use log::{LevelFilter, error, info};
+use log::{LevelFilter, error, info, warn};
 use std::{ops::Deref, path::PathBuf};
 
-use eframe::{NativeOptions, egui};
+use eframe::{
+    NativeOptions,
+    egui::{self, DroppedFile},
+};
 
 mod path;
 use crate::path::{PathSortable, to_path, to_url};
@@ -52,38 +55,17 @@ impl eframe::App for ImageViewer {
                 let prev_random = self.randomize;
                 ui.toggle_value(&mut self.randomize, "Randomize");
 
-                if prev_random != self.randomize {
-                    if !self.files.is_empty() {
-                        // determine currently shown path (if any) without the file:// prefix
-                        let cur_path = self
-                            .current_src
-                            .as_ref()
-                            .and_then(|s| to_path(s));
-
-                        if self.randomize {
-                            use rand::seq::SliceRandom;
-                            let mut rng = rand::rng();
-                            self.files.shuffle(&mut rng);
-                        } else {
-                            self.files.sort();
-                        }
-
-                        // re-index to current file if present, otherwise fallback to 0
-                        if let Some(cur) = cur_path {
-                            if let Some(pos) = self.files.iter().position(|p| p.deref() == &cur) {
-                                self.index = pos;
-                                self.current_src = Some(to_url(&self.files[self.index]));
-                            } else {
-                                self.index = 0;
-                                self.current_src = Some(to_url(&self.files[0]));
-                            }
-                        } else {
-                            self.index = 0;
-                            self.current_src = Some(to_url(&self.files[0]));
-                        }
-                        // reset image_size so runtime loader can supply intrinsic size again
-                        self.image_size = [0, 0];
+                if prev_random != self.randomize && !self.files.is_empty() {
+                    if self.randomize {
+                        use rand::seq::SliceRandom;
+                        let mut rng = rand::rng();
+                        self.files.shuffle(&mut rng);
+                    } else {
+                        self.files.sort();
                     }
+                    self.reindex();
+                    // reset image_size so runtime loader can supply intrinsic size again
+                    self.image_size = [0, 0];
                 }
 
                 if let Some(src) = &self.current_src {
@@ -95,20 +77,7 @@ impl eframe::App for ImageViewer {
         // drag & drop: open directory or file
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if !dropped.is_empty() {
-            for f in dropped {
-                if let Some(p) = f.path {
-                    if p.is_dir() {
-                        let _ = self.open_dir(&p);
-                        break;
-                    } else if p.is_file() {
-                        // open single file
-                        self.files = vec![PathSortable::from(p.clone())];
-                        self.index = 0;
-                        self.current_src = Some(format!("file://{}", p.display()));
-                        break;
-                    }
-                }
-            }
+            self.open_dropped_path(dropped);
         }
 
         // keyboard navigation
@@ -153,7 +122,9 @@ impl ImageViewer {
             .map(PathSortable::from)
             .collect::<Vec<_>>();
 
-        let exts = ["jpg", "jpeg", "png", "bmp", "gif", "webp", "avif"];
+        let exts = [
+            "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "tif", "tiff",
+        ];
         entries.retain(|p| {
             p.extension()
                 .and_then(|s| s.to_str())
@@ -180,7 +151,46 @@ impl ImageViewer {
         self.current_src = Some(to_url(&p));
         // we don't know image size here; egui_extras may set it when loading. Keep fallback size 0.
         self.image_size = [0, 0];
+
+        info!("Opened directory: {:?}, {} image files detected.", dir, self.files.len());
         Ok(())
+    }
+
+    fn open_dropped_path(&mut self, dropped: Vec<DroppedFile>) {
+        for f in dropped {
+            let Some(dropped_path) = f.path.as_ref().map(|p| p.to_path_buf()) else {
+                warn!("Dropped file has no path: {:?}", f.path);
+                continue;
+            };
+            let dir_path = if dropped_path.is_dir() {
+                dropped_path.clone()
+            } else {
+                let Some(parent) = dropped_path.parent() else {
+                    warn!(
+                        "Could not get parent directory of dropped file: {:?}",
+                        dropped_path
+                    );
+                    continue;
+                };
+                parent.to_path_buf()
+            };
+
+            let _ = self.open_dir(&dir_path);
+            info!("Opened directory: {:?}, {} image files detected.", dir_path, self.files.len());
+
+            if dropped_path.is_file() {
+                // display dropped file
+                for (i, p) in self.files.iter().enumerate() {
+                    if p.deref() == &dropped_path {
+                        self.index = i;
+                        self.current_src = Some(to_url(p.deref()));
+                        break;
+                    }
+                }
+                info!("Opened dropped file: {:?}", dropped_path);
+                break;
+            }
+        }
     }
 
     fn next(&mut self) {
@@ -206,13 +216,29 @@ impl ImageViewer {
         self.current_src = Some(to_url(&p));
         self.image_size = [0, 0];
     }
+
+    fn reindex(&mut self) {
+        let cur_path = self.current_src.as_ref().and_then(|s| to_path(s));
+        if let Some(cur) = cur_path {
+            let pos = self
+                .files
+                .iter()
+                .position(|p| p.deref() == &cur)
+                .unwrap_or(0);
+            self.index = pos;
+            self.current_src = Some(to_url(&self.files[self.index]));
+        } else {
+            self.index = 0;
+            self.current_src = Some(to_url(&self.files[0]));
+        }
+    }
 }
 
 fn main() {
     // initialize logger so egui_extras and other crates can emit diagnostics
     env_logger::builder()
         .format_timestamp(None)
-        .filter_level(LevelFilter::Debug)
+        .filter_level(LevelFilter::Info)
         .init();
 
     let options = NativeOptions::default();

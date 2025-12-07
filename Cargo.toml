@@ -1,6 +1,6 @@
 [package]
 name = "view-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -17,8 +17,11 @@ rfd = "0.12"
 rand = "0.9"
 env_logger = "0.10"
 log = "0.4"
-image = { version = "0.25", features = ["png", "jpeg", "bmp", "webp", "tiff"] }
+image = { version = "0.25", features = ["png", "jpeg", "bmp", "webp", "avif", "tiff"] }
 natural-sort-rs = "0.2.1"
 
 [profile.release]
 lto = true
+
+[lints.clippy]
+collapsible_if = "allow"
