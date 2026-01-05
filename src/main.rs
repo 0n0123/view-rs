@@ -97,7 +97,7 @@ impl eframe::App for ImageViewer {
                         let avail = ui.available_size();
                         let disp_size = egui::vec2(avail.x, avail.y);
                         // Use egui Image widget with runtime source (egui_extras provides loaders)
-                        ui.add_sized(disp_size, egui::Image::new(src.as_str()));
+                        ui.add_sized(disp_size, egui::Image::new(src));
                     });
             } else {
                 ui.centered_and_justified(|ui| {
@@ -149,10 +149,13 @@ impl ImageViewer {
         let p = self.files[0].clone();
 
         self.current_src = Some(to_url(&p));
-        // we don't know image size here; egui_extras may set it when loading. Keep fallback size 0.
         self.image_size = [0, 0];
 
-        info!("Opened directory: {:?}, {} image files detected.", dir, self.files.len());
+        info!(
+            "Opened directory: {:?}, {} image files detected.",
+            dir,
+            self.files.len()
+        );
         Ok(())
     }
 
@@ -176,7 +179,11 @@ impl ImageViewer {
             };
 
             let _ = self.open_dir(&dir_path);
-            info!("Opened directory: {:?}, {} image files detected.", dir_path, self.files.len());
+            info!(
+                "Opened directory: {:?}, {} image files detected.",
+                dir_path,
+                self.files.len()
+            );
 
             if dropped_path.is_file() {
                 // display dropped file
@@ -237,8 +244,8 @@ impl ImageViewer {
 fn main() {
     // initialize logger so egui_extras and other crates can emit diagnostics
     env_logger::builder()
-        .format_timestamp(None)
-        .filter_level(LevelFilter::Info)
+        .default_format()
+        .filter_level(LevelFilter::Debug)
         .init();
 
     let options = NativeOptions::default();

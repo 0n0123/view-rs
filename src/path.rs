@@ -1,4 +1,7 @@
-use std::{ops::Deref, path::{Path, PathBuf}};
+use std::{
+    ops::Deref,
+    path::{Path, PathBuf},
+};
 
 #[derive(Eq, PartialEq)]
 pub struct PathSortable(PathBuf);
@@ -16,6 +19,12 @@ impl Deref for PathSortable {
     }
 }
 
+impl AsRef<Path> for PathSortable {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
 impl Ord for PathSortable {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         natural_sort_rs::natural_cmp(&self.0.to_string_lossy(), &other.0.to_string_lossy())
@@ -28,8 +37,8 @@ impl PartialOrd for PathSortable {
     }
 }
 
-pub fn to_url(path: &Path) -> String {
-    format!("file://{}", path.display())
+pub fn to_url<P: AsRef<Path>>(path: P) -> String {
+    format!("file://{}", path.as_ref().display())
 }
 
 pub fn to_path(url: &str) -> Option<PathBuf> {
