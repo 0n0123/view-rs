@@ -17,7 +17,7 @@ rfd = "0.12"
 rand = "0.9"
 env_logger = "0.10"
 log = "0.4"
-image = { version = "0.25", features = ["png", "jpeg", "bmp", "webp", "avif", "avif-native", "tiff"] }
+image = { version = "0.25", features = ["png", "jpeg", "bmp", "gif", "webp", "avif", "avif-native", "tiff"] }
 natural-sort-rs = "0.2.1"
 
 [profile.release]

@@ -20,9 +20,24 @@ Image viewer, powered by Rust+egui.
   - JPEG
   - PNG
   - BMP
-  - GIF (static — only the first frame is shown; animations are not played)
-  - WebP
+  - GIF (animated GIFs are played automatically)
+  - WebP (animated WebPs are played automatically)
   - AVIF
 
 Notes:
-- This application currently supports static images only. Animated formats (animated GIF, animated WebP/AVIF) are not played; the viewer shows a single static frame (typically the first frame).
+- Animated GIF and animated WebP files are played automatically. Playback controls such as pause, seek, and speed adjustment are not provided.
+- APNG and animated AVIF are not currently played.
+
+## How to build
+
+To build an executable, run the following command:
+
+```bash
+cargo build --release
+```
+
+For macOS, you can also build a `.app` bundle by running the following command:
+
+```bash
+cargo bundle --release
+```
