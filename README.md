@@ -6,12 +6,14 @@ Image viewer, powered by Rust+egui.
 
 1. Click `Open directory` button to open a directory
 2. Select a directory that contains some image files
-3. Click left/right button to view the image
+3. Optionally enter part of an image filename and click `Search`
+4. Click left/right button to view the image
 
 ## Features
 
-- Reads all the image files in the directory
+- Opens a directory and lists all image files in it
 - Randomize the file order
+- Searches image filenames by case-insensitive partial match
 - Shows an image, keeps aspect ratio
 - Changes the size of the image following window size
 - Supports following image format:

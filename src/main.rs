@@ -17,6 +17,8 @@ struct ImageViewer {
     files: Vec<PathSortable>,
     index: usize,
     randomize: bool,
+    root_dir: Option<PathBuf>,
+    search_query: String,
 }
 
 impl Default for ImageViewer {
@@ -27,32 +29,84 @@ impl Default for ImageViewer {
             files: Vec::new(),
             index: 0,
             randomize: true,
+            root_dir: None,
+            search_query: String::new(),
         }
     }
 }
 
 impl eframe::App for ImageViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let open_directory_requested =
+            ctx.input(|i| i.modifiers == egui::Modifiers::CTRL && i.key_pressed(egui::Key::O));
+        let focus_search_requested =
+            ctx.input(|i| i.modifiers == egui::Modifiers::CTRL && i.key_pressed(egui::Key::F));
+        let randomize_requested =
+            ctx.input(|i| i.modifiers == egui::Modifiers::CTRL && i.key_pressed(egui::Key::R));
+
+        let open_directory = |viewer: &mut Self| {
+            if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                if let Err(err) = viewer.open_dir(&dir) {
+                    error!("Failed to open directory: {}", err);
+                }
+            }
+        };
+
+        let search = |viewer: &mut Self| {
+            if let Some(dir) = viewer.root_dir.clone() {
+                if let Err(err) = viewer.open_dir(&dir) {
+                    error!("Failed to search directory: {}", err);
+                }
+            }
+        };
+
+        if open_directory_requested {
+            open_directory(self);
+        }
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Open directory").clicked() {
-                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                        if let Err(err) = self.open_dir(&dir) {
-                            error!("Failed to open directory: {}", err);
-                        }
-                    }
+                    open_directory(self);
+                }
+                ui.label(self.root_dir.as_deref().map_or_else(
+                    || "No folder selected".to_owned(),
+                    |path| path.display().to_string(),
+                ));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("File filter:");
+                let search_response = ui.add(
+                    egui::TextEdit::singleline(&mut self.search_query)
+                        .id(egui::Id::new("search_query")),
+                );
+                let search_requested = ui
+                    .add_enabled(self.root_dir.is_some(), egui::Button::new("Search"))
+                    .clicked()
+                    || (search_response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+
+                if search_requested {
+                    search(self);
                 }
 
-                if ui.button("Prev").clicked() {
-                    self.prev();
+                if ui.button("Reset").clicked() {
+                    self.search_query.clear();
+                    search(self);
                 }
-
-                if ui.button("Next").clicked() {
-                    self.next();
+                if focus_search_requested {
+                    search_response.request_focus();
                 }
+            });
+        });
 
-                // detect toggle change so we can reorder files while keeping the current file visible
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
                 let prev_random = self.randomize;
+                if randomize_requested {
+                    self.randomize = !self.randomize;
+                }
                 ui.toggle_value(&mut self.randomize, "Randomize");
 
                 if prev_random != self.randomize && !self.files.is_empty() {
@@ -68,9 +122,41 @@ impl eframe::App for ImageViewer {
                     self.image_size = [0, 0];
                 }
 
-                if let Some(src) = &self.current_src {
-                    ui.label(src);
+                if ui.button("First").clicked() {
+                    self.first();
                 }
+
+                if ui.button("Prev").clicked() {
+                    self.prev();
+                }
+
+                let position = if self.files.is_empty() {
+                    "0 / 0".to_owned()
+                } else {
+                    format!("{} / {}", self.index + 1, self.files.len())
+                };
+                ui.label(position);
+
+                if ui.button("Next").clicked() {
+                    self.next();
+                }
+
+                if ui.button("Last").clicked() {
+                    self.last();
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let relative_path = self
+                        .root_dir
+                        .as_ref()
+                        .and_then(|root| {
+                            self.files
+                                .get(self.index)
+                                .and_then(|file| file.as_ref().strip_prefix(root).ok())
+                        })
+                        .map_or_else(|| "-".to_owned(), |path| path.display().to_string());
+                    ui.label(relative_path);
+                });
             });
         });
 
@@ -110,29 +196,15 @@ impl eframe::App for ImageViewer {
 
 impl ImageViewer {
     fn open_dir(&mut self, dir: &PathBuf) -> Result<(), String> {
-        let mut entries = std::fs::read_dir(dir)
-            .map_err(|e| e.to_string())?
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .filter(|p| {
-                p.is_file()
-                    && p.file_name()
-                        .is_some_and(|n| !n.to_string_lossy().starts_with('.'))
-            })
-            .map(PathSortable::from)
-            .collect::<Vec<_>>();
-
-        let exts = [
-            "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "tif", "tiff",
-        ];
-        entries.retain(|p| {
-            p.extension()
-                .and_then(|s| s.to_str())
-                .map(|s| exts.contains(&s.to_ascii_lowercase().as_str()))
-                .unwrap_or(false)
-        });
+        self.root_dir = Some(dir.clone());
+        let mut entries = Vec::new();
+        collect_images(dir, &self.search_query, &mut entries).map_err(|e| e.to_string())?;
 
         if entries.is_empty() {
+            self.files.clear();
+            self.index = 0;
+            self.current_src = None;
+            self.image_size = [0, 0];
             return Err("No image files found in directory".into());
         }
 
@@ -224,6 +296,26 @@ impl ImageViewer {
         self.image_size = [0, 0];
     }
 
+    fn first(&mut self) {
+        if self.files.is_empty() {
+            return;
+        }
+        self.index = 0;
+        let p = self.files[self.index].clone();
+        self.current_src = Some(to_url(&p));
+        self.image_size = [0, 0];
+    }
+
+    fn last(&mut self) {
+        if self.files.is_empty() {
+            return;
+        }
+        self.index = self.files.len() - 1;
+        let p = self.files[self.index].clone();
+        self.current_src = Some(to_url(&p));
+        self.image_size = [0, 0];
+    }
+
     fn reindex(&mut self) {
         let cur_path = self.current_src.as_ref().and_then(|s| to_path(s));
         if let Some(cur) = cur_path {
@@ -239,6 +331,61 @@ impl ImageViewer {
             self.current_src = Some(to_url(&self.files[0]));
         }
     }
+}
+
+fn collect_images(
+    dir: &PathBuf,
+    search_query: &str,
+    entries: &mut Vec<PathSortable>,
+) -> std::io::Result<()> {
+    let exts = [
+        "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "tif", "tiff",
+    ];
+    let query = search_query.to_ascii_lowercase();
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(_) => continue,
+        };
+
+        if file_type.is_dir() && !search_query.is_empty() {
+            collect_images(&path, search_query, entries)?;
+            continue;
+        }
+
+        if file_type.is_dir() {
+            continue;
+        }
+
+        if !file_type.is_file()
+            || path
+                .file_name()
+                .is_none_or(|name| name.to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
+
+        let is_image = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| exts.contains(&extension.to_ascii_lowercase().as_str()))
+            .unwrap_or(false);
+        let matches_query = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().to_ascii_lowercase().contains(&query));
+
+        if is_image && matches_query {
+            entries.push(PathSortable::from(path));
+        }
+    }
+
+    Ok(())
 }
 
 fn main() {
